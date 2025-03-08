@@ -389,7 +389,8 @@ std::thread producer1(producer, queue, 1); // Ошибка: queue передае
 ```
 Компилятор выдаст ошибку, так как queue нельзя скопировать (потому что `std::mutex` и `std::condition_variable` внутри `ThreadSafeQueue` не могут быть скопированы).
 
-## Lambda
+# Lambda
+
 Функция producer имитирует работу заказчика, который добавляет задачи в очередь queue. Вот код функции:
 ```cpp
 void producer(ThreadSafeQueue& queue, int id) {
