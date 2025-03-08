@@ -996,3 +996,617 @@ int main() {
 
 - Поэтому вызовы lock() и unlock() всегда связаны с логикой потока.
 
+# **std::lock_guard**
+`std::lock_guard` — это RAII-обёртка (Resource Acquisition Is Initialization) для мьютекса, предоставляемая стандартной библиотекой C++ (заголовочный файл `<mutex>`). Она автоматически управляет захватом и освобождением мьютекса, что упрощает работу с синхронизацией и помогает избежать утечек ресурсов.
+
+## Описание std::lock_guard
+`std::lock_guard` — это простой и эффективный способ управления мьютексом. Основная идея:
+
+При создании объекта `std::lock_guard` он автоматически захватывает мьютекс.
+
+При уничтожении объекта (например, при выходе из области видимости) он автоматически освобождает мьютекс.
+
+Это гарантирует, что мьютекс будет освобождён, даже если произойдёт исключение.
+
+## Архитектура std::lock_guard
+`std::lock_guard` — это шаблонный класс, который принимает тип мьютекса (например, `std::mutex`) в качестве параметра шаблона. Его архитектура включает:
+
+1. Конструктор:
+
+- Захватывает мьютекс (вызывает `lock()`).
+
+2. Деструктор:
+
+- Освобождает мьютекс (вызывает `unlock()`).
+
+3. Удалённые методы:
+
+- Копирование и присваивание запрещены (объект `std::lock_guard` нельзя копировать или перемещать).
+
+## Методы std::lock_guard
+У `std::lock_guard` очень простой интерфейс:
+
+1. Конструктор:
+
+- `explicit lock_guard(mutex_type& m);`
+
+    - Захватывает мьютекс m при создании объекта.
+
+- `lock_guard(mutex_type& m, std::adopt_lock_t tag);`
+
+    - Принимает уже захваченный мьютекс (используется с `std::adopt_lock`).
+
+2. Деструктор:
+
+- Освобождает мьютекс.
+
+3. Удалённые методы:
+
+- `lock_guard(const lock_guard&) = delete;` (копирование запрещено)
+
+- `lock_guard& operator=(const lock_guard&) = delete;` (присваивание запрещено)
+
+## Применение std::lock_guard
+`std::lock_guard` используется для автоматического управления мьютексом в критических секциях кода. Вот несколько примеров:
+
+### 1. Базовый пример
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    std::lock_guard<std::mutex> lock(mtx); // Мьютекс захватывается здесь
+    std::cout << "Thread " << id << " is running.\n";
+    // Мьютекс автоматически освобождается при выходе из области видимости
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+Здесь:
+
+std::lock_guard автоматически захватывает мьютекс при создании и освобождает его при выходе из области видимости.
+
+### 2. Использование с std::adopt_lock
+Если мьютекс уже захвачен, можно передать его в `std::lock_guard` с тегом `std::adopt_lock`, чтобы избежать повторного захвата.
+
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    mtx.lock(); // Мьютекс захватывается вручную
+    std::lock_guard<std::mutex> lock(mtx, std::adopt_lock); // Принимает уже захваченный мьютекс
+    std::cout << "Thread " << id << " is running.\n";
+    // Мьютекс автоматически освобождается при выходе из области видимости
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+
+### 3. Защита общих данных
+`std::lock_guard` часто используется для защиты общих данных от гонок (race conditions).
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <vector>
+
+std::mutex mtx;
+std::vector<int> shared_data;
+
+void thread_function(int id) {
+    for (int i = 0; i < 10; ++i) {
+        std::lock_guard<std::mutex> lock(mtx);
+        shared_data.push_back(id * 10 + i);
+    }
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    for (int value : shared_data) {
+        std::cout << value << " ";
+    }
+    std::cout << "\n";
+
+    return 0;
+}
+```
+Здесь:
+
+std::lock_guard защищает доступ к общему вектору shared_data.
+
+### 4. Использование в классах
+`std::lock_guard` можно использовать внутри методов класса для защиты доступа к полям.
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+class SharedCounter {
+    std::mutex mtx;
+    int counter = 0;
+
+public:
+    void increment() {
+        std::lock_guard<std::mutex> lock(mtx);
+        ++counter;
+    }
+
+    int get() const {
+        return counter;
+    }
+};
+
+void thread_function(SharedCounter& counter) {
+    for (int i = 0; i < 1000; ++i) {
+        counter.increment();
+    }
+}
+
+int main() {
+    SharedCounter counter;
+    std::thread t1(thread_function, std::ref(counter));
+    std::thread t2(thread_function, std::ref(counter));
+
+    t1.join();
+    t2.join();
+
+    std::cout << "Final counter value: " << counter.get() << "\n";
+    return 0;
+}
+```
+## Преимущества и недостатки std::lock_guard
+### Преимущества std::lock_guard
+Автоматическое управление:
+
+Мьютекс освобождается автоматически, даже если произойдёт исключение.
+
+Простота использования:
+
+Не нужно вручную вызывать lock() и unlock().
+
+Безопасность:
+
+Исключает возможность забыть освободить мьютекс.
+
+### Недостатки std::lock_guard
+Ограниченная функциональность:
+
+Не поддерживает отложенный захват (deferred lock) или попытку захвата (try_lock).
+
+Для таких сценариев используется std::unique_lock.
+
+Нельзя копировать или перемещать:
+
+Объект std::lock_guard привязан к области видимости.
+
+### Когда использовать std::lock_guard?
+Когда нужно просто защитить критическую секцию кода.
+
+Когда не требуется дополнительная функциональность, такая как try_lock или отложенный захват.
+
+Когда нужно минимизировать накладные расходы (по сравнению с std::unique_lock).
+
+### Заключение
+std::lock_guard — это простой и эффективный инструмент для автоматического управления мьютексом. Он идеально подходит для большинства сценариев синхронизации, где требуется минимализм и безопасность. Однако для более сложных случаев (например, отложенный захват или попытка захвата) лучше использовать `std::unique_lock`.
+
+# std::unique_lock
+`std::unique_lock` — это более мощная версия `std::lock_guard`, которая предоставляет дополнительные возможности для управления мьютексами. Она позволяет:
+- Отложить захват мьютекса (deferred lock).
+- Попытаться захватить мьютекс (try_lock).
+- Освободить мьютекс вручную.
+
+`std::unique_lock` — это более гибкая и мощная RAII-обёртка для мьютекса, предоставляемая стандартной библиотекой C++ (заголовочный файл `<mutex>`). В отличие от `std::lock_guard`, `std::unique_lock` предоставляет дополнительные возможности, такие как отложенный захват, попытка захвата, повторный захват и передача владения мьютексом.
+
+## Описание std::unique_lock
+`std::unique_lock` — это шаблонный класс, который работает с любым типом мьютекса (например, `std::mutex`, `std::timed_mutex`). Основные особенности:
+
+- Автоматическое управление: Как и `std::lock_guard`, `std::unique_lock` автоматически освобождает мьютекс при выходе из области видимости.
+
+- Гибкость: Поддерживает отложенный захват, попытку захвата, повторный захват и передачу владения.
+
+- Безопасность: Гарантирует освобождение мьютекса даже при возникновении исключения.
+
+## Архитектура std::unique_lock
+`std::unique_lock` — это обёртка вокруг мьютекса, которая управляет его состоянием. Его архитектура включает:
+
+**Конструкторы:**  
+
+- Позволяют захватывать мьютекс сразу или отложенно.
+
+**Деструктор:**  
+
+- Освобождает мьютекс, если он захвачен.
+
+**Методы:**
+
+- Управление захватом и освобождением мьютекса.
+
+**Состояние:**
+
+- Хранит указатель на мьютекс и информацию о том, захвачен ли он.
+
+## Методы std::unique_lock
+
+`std::unique_lock` предоставляет множество методов для гибкого управления мьютексом:
+
+| Метод | Описание |
+|-------|-----------|
+| **Конструкторы** | |
+| `unique_lock(mutex_type& m)` | Захватывает мьютекс `m` при создании. |
+| `unique_lock(mutex_type& m, std::defer_lock_t)` | Не захватывает мьютекс (отложенный захват). |
+| `unique_lock(mutex_type& m, std::try_to_lock_t)` | Пытается захватить мьютекс без блокировки. |
+| `unique_lock(mutex_type& m, std::adopt_lock_t)` | Принимает уже захваченный мьютекс. |
+| **Деструктор** | |
+| `~unique_lock()` | Освобождает мьютекс, если он захвачен. |
+| **Методы управления** | |
+| `lock()` | Захватывает мьютекс (блокирует, если он уже захвачен). |
+| `try_lock()` | Пытается захватить мьютекс без блокировки. Возвращает `true` при успехе. |
+| `unlock()` | Освобождает мьютекс. |
+| **Методы доступа** | |
+| `mutex()` | Возвращает указатель на управляемый мьютекс. |
+| `owns_lock()` | Возвращает `true`, если мьютекс захвачен. |
+| `operator bool()` | Возвращает `true`, если мьютекс захвачен. |
+
+## Применение std::unique_lock
+`std::unique_lock` используется в более сложных сценариях, где требуется гибкость в управлении мьютексом. Вот несколько примеров:
+
+### 1. Базовый пример (аналогично std::lock_guard)
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    std::unique_lock<std::mutex> lock(mtx); // Захватывает мьютекс
+    std::cout << "Thread " << id << " is running.\n";
+    // Мьютекс автоматически освобождается при выходе из области видимости
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+### 2. Отложенный захват (defer_lock)
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    std::unique_lock<std::mutex> lock(mtx, std::defer_lock); // Мьютекс не захватывается сразу
+    // Делаем что-то без захвата мьютекса
+    lock.lock(); // Захватываем мьютекс вручную
+    std::cout << "Thread " << id << " is running.\n";
+    // Мьютекс автоматически освобождается при выходе из области видимости
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+### 3. Попытка захвата (try_lock)
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    std::unique_lock<std::mutex> lock(mtx, std::try_to_lock); // Пытается захватить мьютекс
+    if (lock.owns_lock()) {
+        std::cout << "Thread " << id << " captured the mutex.\n";
+    } else {
+        std::cout << "Thread " << id << " could not capture the mutex.\n";
+    }
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+
+#### 4. Передача владения мьютексом
+`std::unique_lock` можно перемещать, что позволяет передавать владение мьютексом между объектами.
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+
+std::mutex mtx;
+
+void thread_function(int id) {
+    std::unique_lock<std::mutex> lock(mtx);
+    std::cout << "Thread " << id << " captured the mutex.\n";
+
+    // Передаём владение мьютексом другому unique_lock
+    std::unique_lock<std::mutex> lock2(std::move(lock));
+    std::cout << "Thread " << id << " transferred the mutex.\n";
+}
+
+int main() {
+    std::thread t1(thread_function, 1);
+    std::thread t2(thread_function, 2);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+
+### 5. Использование с std::condition_variable
+`std::unique_lock` часто используется с условными переменными (`std::condition_variable`), так как они требуют мьютекса с возможностью повторного захвата.
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+std::mutex mtx;
+std::condition_variable cv;
+bool ready = false;
+
+void wait_thread() {
+    std::unique_lock<std::mutex> lock(mtx);
+    cv.wait(lock, [] { return ready; }); // Освобождает мьютекс и ждёт
+    std::cout << "Thread is running.\n";
+}
+
+void signal_thread() {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        ready = true;
+    }
+    cv.notify_one(); // Уведомляет ожидающий поток
+}
+
+int main() {
+    std::thread t1(wait_thread);
+    std::thread t2(signal_thread);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+## Преимущества и недостатки std::unique_lock
+### Преимущества std::unique_lock
+Гибкость: Поддерживает отложенный захват, попытку захвата и передачу владения.
+
+Безопасность: Гарантирует освобождение мьютекса даже при исключениях.
+
+Совместимость: Работает с std::condition_variable.
+
+### Недостатки std::unique_lock
+Накладные расходы: Немного больше накладных расходов по сравнению с std::lock_guard.
+
+Сложность: Более сложный интерфейс, чем у std::lock_guard.
+
+Когда использовать std::unique_lock?
+Когда требуется гибкость в управлении мьютексом (например, отложенный захват или попытка захвата).
+
+При работе с std::condition_variable.
+
+Когда нужно передать владение мьютексом между объектами.
+
+# Разбор кода с использованием std::unique_lock и std::condition_variable
+Рассмотрим:
+```cpp
+#include <iostream>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+
+std::mutex mtx;
+std::condition_variable cv;
+bool ready = false;
+
+void wait_thread() {
+    std::unique_lock<std::mutex> lock(mtx);
+    cv.wait(lock, [] { return ready; }); // Освобождает мьютекс и ждёт
+    std::cout << "Thread is running.\n";
+}
+
+void signal_thread() {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        ready = true;
+    }
+    cv.notify_one(); // Уведомляет ожидающий поток
+}
+
+int main() {
+    std::thread t1(wait_thread);
+    std::thread t2(signal_thread);
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
+```
+Этот код демонстрирует использование условной переменной (`std::condition_variable`) для синхронизации двух потоков. Один поток ждёт уведомления от другого потока, чтобы продолжить выполнение. Давайте разберём код подробно.
+
+## Общий смысл программы
+1. Поток t1 (**wait_thread**):
+
+- Ждёт, пока переменная ready станет `true`.
+
+- Как только `ready` становится `true`, поток продолжает выполнение и выводит сообщение.
+
+2. Поток t2 (**signal_thread**):
+
+- Ждёт 1 секунду (имитация работы).
+
+- Устанавливает ready = true и уведомляет ожидающий поток (t1).
+
+3 Синхронизация:
+
+- Используется мьютекс (`std::mutex`) и условная переменная (`std::condition_variable`).
+
+## Подробное объяснение кода
+### 1. Глобальные переменные
+```cpp
+std::mutex mtx;                  // Мьютекс для синхронизации доступа к shared-данным
+std::condition_variable cv;      // Условная переменная для уведомления потоков
+bool ready = false;              // Флаг, указывающий, готовы ли данные
+```
+- `mtx`: Мьютекс, который защищает доступ к переменной ready.
+
+- `cv`: Условная переменная, которая позволяет потоку ждать уведомления.
+
+- `ready`: Флаг, который используется для синхронизации потоков.
+
+### 2. Функция wait_thread
+```cpp
+void wait_thread() {
+    std::unique_lock<std::mutex> lock(mtx);  // Захватываем мьютекс
+    cv.wait(lock, [] { return ready; });     // Ждём уведомления и проверяем условие
+    std::cout << "Thread is running.\n";     // Выводим сообщение после уведомления
+}
+```
+- `std::unique_lock<std::mutex> lock(mtx);`
+
+    - Захватывает мьютекс `mtx`. Это необходимо для безопасного доступа к переменной ready.
+
+- `cv.wait(lock, [] { return ready; });`
+
+    - Условная переменная `cv` освобождает мьютекс `mtx` и переводит поток в состояние ожидания.
+
+    - Поток будет ждать, пока другой поток не вызовет `cv.notify_one()` или `cv.notify_all()`.
+
+    - После получения уведомления поток снова захватывает мьютекс и проверяет условие `ready`. Если `ready == true`, поток продолжает выполнение.
+
+    - Лямбда-функция `[] { return ready; }` — это предикат, который проверяет, выполнено ли условие.
+
+- `std::cout << "Thread is running.\n";`
+
+    - После того как поток получил уведомление и условие ready == true выполнено, поток выводит сообщение.
+
+### 3. Функция signal_thread
+```cpp
+void signal_thread() {
+    std::this_thread::sleep_for(std::chrono::seconds(1));  // Имитация работы (1 секунда)
+    {
+        std::unique_lock<std::mutex> lock(mtx);  // Захватываем мьютекс
+        ready = true;                            // Устанавливаем флаг ready в true
+    }  // Мьютекс автоматически освобождается при выходе из области видимости
+    cv.notify_one();  // Уведомляем ожидающий поток
+}
+```
+- `std::this_thread::sleep_for(std::chrono::seconds(1));`
+
+    - Поток ждёт 1 секунду, чтобы имитировать выполнение какой-то работы.
+
+- `std::unique_lock<std::mutex> lock(mtx);`
+
+    - Захватывает мьютекс для безопасного изменения переменной ready.
+
+- `ready = true;`
+
+    - Устанавливает флаг ready в true, чтобы указать, что данные готовы.
+
+- `cv.notify_one();`
+
+    - Уведомляет один из ожидающих потоков (в данном случае поток `t1`), что условие выполнено.
+
+### 4. Функция main
+```cpp
+int main() {
+    std::thread t1(wait_thread);  // Создаём поток t1, который будет ждать
+    std::thread t2(signal_thread); // Создаём поток t2, который будет уведомлять
+
+    t1.join();  // Ожидаем завершения потока t1
+    t2.join();  // Ожидаем завершения потока t2
+
+    return 0;
+}
+```
+- `std::thread t1(wait_thread);`
+
+    - Создаёт поток `t1`, который выполняет функцию `wait_thread`.
+
+- `std::thread t2(signal_thread);`
+
+    - Создаёт поток `t2`, который выполняет функцию `signal_thread`.
+
+- `t1.join();` и `t2.join();`
+
+    - Ожидают завершения потоков `t1` и `t2`.
+
+## Как работает программа?
+- Поток `t1` запускается и сразу захватывает мьютекс.
+
+- Поток `t1` вызывает `cv.wait(lock, [] { return ready; });`, освобождает мьютекс и переходит в состояние ожидания.
+
+- Поток `t2` запускается, ждёт 1 секунду, затем захватывает мьютекс и устанавливает `ready = true`.
+
+- Поток `t2` освобождает мьютекс и уведомляет поток `t1` с помощью `cv.notify_one()`.
+
+- Поток `t1` получает уведомление, захватывает мьютекс, проверяет условие `ready == true` и продолжает выполнение.
+
+- Поток `t1` выводит сообщение `"Thread is running.\n".`
+
+- Оба потока завершаются, и программа заканчивает работу.
+
+## Почему используется std::unique_lock, а не std::lock_guard?
+- `std::unique_lock` позволяет временно освобождать мьютекс (например, в `cv.wait`), что невозможно с `std::lock_guard`.
+
+- Условные переменные (`std::condition_variable`) требуют использования `std::unique_lock`, так как им нужно управлять мьютексом (захватывать и освобождать его).
+
+## Зачем нужен предикат в cv.wait?
+Предикат `[] { return ready; }` используется для защиты от ложных пробуждений (**spurious wakeups**). Это ситуация, когда поток может быть разбужен без явного уведомления (например, из-за особенностей реализации ОС). Предикат гарантирует, что поток продолжит выполнение только тогда, когда условие `ready == true` действительно выполнено.
